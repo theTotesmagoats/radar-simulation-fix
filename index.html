@@ -787,7 +787,10 @@ let contacts = [
     turnTimer: Math.random() * 60 + 30, // FIXED: Realistic movement - random turns
     currentTurn: 0, // FIXED: Current turning direction
     movementType: 1, // FIXED: Added movement type (0=straight, 1=arc, 2=fishing)
-    detected: false // FIXED: Track if contact has been detected by radar sweep
+    detected: false, // FIXED: Track if contact has been detected by radar sweep
+    velocityX: Math.cos(Math.PI / 4) * 0.1875,
+    velocityY: Math.sin(Math.PI / 4) * 0.1875,
+    positionHistory: [] // For prediction algorithm
   },
   { 
     id: 2, // FIXED: Changed from string ID to numeric
@@ -806,7 +809,10 @@ let contacts = [
     turnTimer: Math.random() * 60 + 30, // FIXED: Realistic movement - random turns
     currentTurn: 0, // FIXED: Current turning direction
     movementType: 2, // FIXED: Added movement type (0=straight, 1=arc, 2=fishing)
-    detected: false // FIXED: Track if contact has been detected by radar sweep
+    detected: false, // FIXED: Track if contact has been detected by radar sweep
+    velocityX: Math.cos(-Math.PI / 3) * 0.15,
+    velocityY: Math.sin(-Math.PI / 3) * 0.15,
+    positionHistory: [] // For prediction algorithm
   }
 ];
 
@@ -826,6 +832,7 @@ let fps = 60;
 let minRangeNm = 5;
 let maxDepthM = 300;
 const MAX_RANGE_NM = 120; // Add maximum range filter
+const PREDICTION_FRAMES = 8; // Number of frames to predict ahead
 
 // Toggle states
 let sonarActive = true;
@@ -1460,7 +1467,10 @@ function restartGame() {
         turnTimer: Math.random() * 60 + 30,
         currentTurn: 0,
         movementType: 1,
-        detected: false
+        detected: false,
+        velocityX: Math.cos(Math.PI / 4) * 0.1875,
+        velocityY: Math.sin(Math.PI / 4) * 0.1875,
+        positionHistory: []
       },
       { 
         id: 2, 
@@ -1479,7 +1489,10 @@ function restartGame() {
         turnTimer: Math.random() * 60 + 30,
         currentTurn: 0,
         movementType: 2,
-        detected: false
+        detected: false,
+        velocityX: Math.cos(-Math.PI / 3) * 0.15,
+        velocityY: Math.sin(-Math.PI / 3) * 0.15,
+        positionHistory: []
       }
     ];
     
@@ -1530,7 +1543,10 @@ function generateRandomContacts() {
       turnTimer: Math.random() * 60 + 30,
       currentTurn: 0,
       movementType: movementType, // Store movement type for different behaviors
-      detected: false // Track detection state
+      detected: false, // Track detection state
+      velocityX: Math.cos(Math.random() * Math.PI * 2) * ((Math.random() * 1.5 + 0.3) * 0.25),
+      velocityY: Math.sin(Math.random() * Math.PI * 2) * ((Math.random() * 1.5 + 0.3) * 0.25),
+      positionHistory: [] // Initialize position history for prediction
     });
   }
 }
@@ -1744,6 +1760,15 @@ function updateTorpedoStatus() {
   }
 }
 
+// Prediction algorithm for contact movement between radar sweeps
+function predictContactPosition(contact, framesAhead) {
+  // Simple linear prediction based on current velocity
+  const predictedX = contact.x + contact.velocityX * framesAhead;
+  const predictedY = contact.y + contact.velocityY * framesAhead;
+  
+  return { x: predictedX, y: predictedY };
+}
+
 // Draw contacts with trails and authentic radar behavior - FIXED: Multiple fixes
 function drawContacts() {
   try {
@@ -1771,6 +1796,13 @@ function drawContacts() {
       // Initialize properties if not present
       contact.lastInSweep = (typeof contact.lastInSweep === 'undefined') ? false : contact.lastInSweep;
       contact.undetectedFrames = (typeof contact.undetectedFrames === 'undefined') ? 0 : contact.undetectedFrames;
+
+      // Update position history for prediction
+      if (!contact.positionHistory) contact.positionHistory = [];
+      contact.positionHistory.push({ x: contact.x, y: contact.y });
+      if (contact.positionHistory.length > PREDICTION_FRAMES * 2) {
+        contact.positionHistory.shift();
+      }
 
       // Record current position for trail
       if (!contact.trail) contact.trail = [];
@@ -1829,9 +1861,13 @@ function drawContacts() {
         currentSpeed = Math.max(0.8 * 0.25, Math.min(4.0 * 0.25, contact.speed));
       }
 
+      // Update velocity for prediction
+      contact.velocityX = Math.cos(contact.angle) * currentSpeed;
+      contact.velocityY = Math.sin(contact.angle) * currentSpeed;
+
       // SLOWED DOWN: Apply the speed reduction
-      contact.x += Math.cos(contact.angle) * currentSpeed;
-      contact.y += Math.sin(contact.angle) * currentSpeed;
+      contact.x += contact.velocityX;
+      contact.y += contact.velocityY;
 
       // Wrap around screen edges
       if (contact.x < 0) contact.x = canvas.width;
